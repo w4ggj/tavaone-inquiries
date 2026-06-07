@@ -20,6 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
 RESEND_API_KEY: str = os.environ["RESEND_API_KEY"]
@@ -92,6 +94,3 @@ async def submit_inquiry(inquiry: InquiryRequest):
         print(f"Resend error (non-fatal): {str(e)}")
 
     return {"success": True, "message": "Inquiry received. We'll be in touch soon."}
-
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
