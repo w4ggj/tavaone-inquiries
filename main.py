@@ -74,6 +74,7 @@ async def submit_inquiry(inquiry: InquiryRequest):
             "message": inquiry.message,
         }).execute()
     except Exception as e:
+        print(f"Supabase error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
     try:
