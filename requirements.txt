@@ -1,5 +1,5 @@
-fastapi
-uvicorn[standard]
-supabase
-resend
-python-dotenv
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+supabase==2.4.6
+resend==0.8.0
+python-dotenv==1.0.1
