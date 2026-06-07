@@ -42,6 +42,14 @@ class InquiryRequest(BaseModel):
 def health():
     return {"status": "ok", "service": "tavaone-inquiries-api"}
 
+@app.get("/debug")
+def debug():
+    import os
+    cwd = os.getcwd()
+    files = os.listdir(cwd)
+    static_exists = os.path.exists(os.path.join(cwd, "static"))
+    static_files = os.listdir(os.path.join(cwd, "static")) if static_exists else []
+    return {"cwd": cwd, "files": files, "static_exists": static_exists, "static_files": static_files}
 
 @app.options("/inquiry")
 async def options_inquiry(request: Request):
