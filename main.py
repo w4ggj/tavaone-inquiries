@@ -1,9 +1,9 @@
+import os
+import resend
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from supabase import create_client
-import resend
-import os
+from pydantic import BaseModel, EmailStr
+from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,52 +12,75 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://tavaone.com"],
+    allow_origins=[
+        "https://tavaone.com",
+        "https://www.tavaone.com",
+    ],
+    allow_credentials=True,
     allow_methods=["POST", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type"],
 )
 
-sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_KEY"])
-resend.api_key = os.environ["RESEND_API_KEY"]
+SUPABASE_URL: str = os.environ["SUPABASE_URL"]
+SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
+RESEND_API_KEY: str = os.environ["RESEND_API_KEY"]
 
-class Inquiry(BaseModel):
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+resend.api_key = RESEND_API_KEY
+
+
+class InquiryRequest(BaseModel):
     name: str
-    email: str
-    project_type: str | None = None
+    email: EmailStr
+    company: str | None = None
+    subject: str
     message: str
 
+
+@app.get("/")
+def health():
+    return {"status": "ok", "service": "tavaone-inquiries-api"}
+
+
 @app.post("/inquiry")
-async def submit_inquiry(data: Inquiry):
+async def submit_inquiry(inquiry: InquiryRequest):
+    # 1. Save to Supabase
     try:
-        # Save to Supabase
-        sb.table("inquiries").insert({
-            "name": data.name,
-            "email": data.email,
-            "project_type": data.project_type,
-            "message": data.message,
-            "status": "new"
+        supabase.table("inquiries").insert({
+            "name": inquiry.name,
+            "email": inquiry.email,
+            "company": inquiry.company,
+            "subject": inquiry.subject,
+            "message": inquiry.message,
         }).execute()
-
-        # Send notification email
-        resend.Emails.send({
-            "from": "TavaOne Inquiries <inquiries@tavaone.com>",
-            "to": "support@tavaone.com",
-            "subject": f"New Inquiry — {data.project_type or 'General'} from {data.name}",
-            "html": f"""
-                <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#0f172a;color:#e2e8f0;padding:32px;border-radius:8px">
-                  <h2 style="color:#10b981;margin:0 0 24px">New Project Inquiry</h2>
-                  <table style="width:100%;border-collapse:collapse">
-                    <tr><td style="padding:8px 0;color:#94a3b8;width:120px">Name</td><td style="padding:8px 0;color:#ffffff;font-weight:600">{data.name}</td></tr>
-                    <tr><td style="padding:8px 0;color:#94a3b8">Email</td><td style="padding:8px 0"><a href="mailto:{data.email}" style="color:#10b981">{data.email}</a></td></tr>
-                    <tr><td style="padding:8px 0;color:#94a3b8">Project Type</td><td style="padding:8px 0;color:#e2e8f0">{data.project_type or '—'}</td></tr>
-                    <tr><td style="padding:8px 0;color:#94a3b8;vertical-align:top">Message</td><td style="padding:8px 0;color:#e2e8f0;line-height:1.6">{data.message}</td></tr>
-                  </table>
-                  <p style="margin:24px 0 0;font-size:12px;color:#475569">Tava One, LLC — tavaone.com</p>
-                </div>
-            """
-        })
-
-        return {"status": "ok"}
-
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    # 2. Send email notification via Resend
+    try:
+        resend.Emails.send({
+            "from": "inquiries@tavaone.com",
+            "to": "support@tavaone.com",
+            "reply_to": inquiry.email,
+            "subject": f"[Dev Inquiry] {inquiry.subject}",
+            "html": f"""
+                <h2>New Developer Inquiry</h2>
+                <table style="font-family: sans-serif; font-size: 14px; border-collapse: collapse;">
+                    <tr><td style="padding: 6px 12px; font-weight: bold;">Name</td>
+                        <td style="padding: 6px 12px;">{inquiry.name}</td></tr>
+                    <tr><td style="padding: 6px 12px; font-weight: bold;">Email</td>
+                        <td style="padding: 6px 12px;"><a href="mailto:{inquiry.email}">{inquiry.email}</a></td></tr>
+                    <tr><td style="padding: 6px 12px; font-weight: bold;">Company</td>
+                        <td style="padding: 6px 12px;">{inquiry.company or "—"}</td></tr>
+                    <tr><td style="padding: 6px 12px; font-weight: bold;">Subject</td>
+                        <td style="padding: 6px 12px;">{inquiry.subject}</td></tr>
+                    <tr><td style="padding: 6px 12px; font-weight: bold;">Message</td>
+                        <td style="padding: 6px 12px; white-space: pre-wrap;">{inquiry.message}</td></tr>
+                </table>
+            """,
+        })
+    except Exception as e:
+        # Inquiry is saved — don't fail the whole request over email
+        print(f"Resend error (non-fatal): {str(e)}")
+
+    return {"success": True, "message": "Inquiry received. We'll be in touch soon."}
