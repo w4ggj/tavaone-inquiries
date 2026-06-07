@@ -1,7 +1,9 @@
 import os
 import resend
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 from supabase import create_client, Client
 from dotenv import load_dotenv
@@ -17,20 +19,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-from fastapi import Request
-from fastapi.responses import JSONResponse
-
-@app.options("/inquiry")
-async def options_inquiry(request: Request):
-    return JSONResponse(
-        content={},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-        }
-    )
 
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
@@ -53,9 +41,20 @@ def health():
     return {"status": "ok", "service": "tavaone-inquiries-api"}
 
 
+@app.options("/inquiry")
+async def options_inquiry(request: Request):
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        }
+    )
+
+
 @app.post("/inquiry")
 async def submit_inquiry(inquiry: InquiryRequest):
-    # 1. Save to Supabase
     try:
         supabase.table("inquiries").insert({
             "name": inquiry.name,
@@ -67,7 +66,6 @@ async def submit_inquiry(inquiry: InquiryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-    # 2. Send email notification via Resend
     try:
         resend.Emails.send({
             "from": "inquiries@tavaone.com",
@@ -91,7 +89,9 @@ async def submit_inquiry(inquiry: InquiryRequest):
             """,
         })
     except Exception as e:
-        # Inquiry is saved — don't fail the whole request over email
         print(f"Resend error (non-fatal): {str(e)}")
 
     return {"success": True, "message": "Inquiry received. We'll be in touch soon."}
+
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
